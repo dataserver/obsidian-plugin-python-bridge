@@ -1,218 +1,299 @@
-# **Obsidian Python Bridge Client Library (HTTP Version)**  
-## *API Documentation for `ObsidianPluginDevPythonToJS.py`*
+# 📘 **Obsidian Python Bridge API Documentation**
 
-> **Version**: 1.0  
-> **File**: `ObsidianPluginDevPythonToJS.py`  
-> **Class**: `ObsidianPluginDevPythonToJS`  
-> **Communication**: HTTP (via Obsidian plugin)  
-
-This document provides a complete reference for the Python client that enables external scripts to interact with **Obsidian** through a local HTTP plugin interface.
+> **Library**: `obsidian_bridge.py`  
+> **Version**: 1.0 (HTTP-based)  
+> **Purpose**: Enables Python scripts to interact with the Obsidian note-taking app via an HTTP plugin bridge.  
+> **Communication**: Uses local HTTP server (default port `27123`) to send/receive JSON commands.
 
 ---
 
-## 🔧 Overview
+## 🔧 Prerequisites
 
-The `ObsidianPluginDevPythonToJS` class allows Python scripts to communicate with the **Obsidian** app by sending HTTP requests to a locally running plugin. This enables automation such as reading/writing notes, modifying frontmatter, showing notifications, and reacting to events.
+Before using this library, ensure:
 
-> ✅ **Use Case Examples**:
-> - Auto-generate metadata
-> - Bulk-edit YAML frontmatter
-> - Create smart templates
-> - Integrate with calendars, AI tools, or databases
-
----
-
-## 🚀 Getting Started
-
-### Prerequisites
-
-- **Obsidian** installed and running
-- **Obsidian Python Bridge Plugin** enabled
-- Python 3.7+
-- Required packages:
-  ```bash
-  pip install requests
-  pip install PyYAML  # Optional: for frontmatter operations
-  ```
-
-### Import and Initialize
-
-Assuming `ObsidianPluginDevPythonToJS.py` is in your script’s directory (or in `PYTHONPATH`):
-
-```python
-from ObsidianPluginDevPythonToJS import ObsidianPluginDevPythonToJS
-
-# Connect to Obsidian (default port: 27123)
-obsidian = ObsidianPluginDevPythonToJS()
+```bash
+pip install requests          # Required
+pip install PyYAML            # Optional: for frontmatter editing
 ```
 
-You can customize the HTTP port:
-
-```python
-obsidian = ObsidianPluginDevPythonToJS(http_port=27124)
-```
-
-> ⚠️ The plugin runs a local server at `http://127.0.0.1:<port>/`.
+Also make sure:
+- The **Obsidian HTTP plugin** is installed and enabled.
+- Obsidian is running.
+- Your script is executed **from within Obsidian** (e.g., via command or event trigger).
 
 ---
 
-## 📚 Core Functions
+## 📦 Module Structure
 
-### `define_settings(settings_list: List[Dict])`
-Registers configuration settings for your script (used in Obsidian UI).
+| Component | Description |
+|--------|-----------|
+| `ObsidianPluginDevPythonToJS` | Main client class for interacting with Obsidian |
+| `define_settings()` | Define user-configurable settings for your script |
+| `handle_discovery_mode()` | Handle `--get-settings-json` CLI flag (required at startup) |
+| `ObsidianCommError` | Exception raised on communication or API errors |
 
-#### Parameters
-| Parameter       | Type             | Description |
-|----------------|------------------|-------------|
-| `settings_list` | `List[Dict]`     | List of setting definitions |
+---
 
-#### Setting Definition Schema
-Each setting dictionary supports:
+## 🚀 Quick Start Example
 
-| Key           | Type     | Required | Description |
-|---------------|----------|----------|-------------|
-| `key`         | `str`    | Yes      | Unique identifier |
-| `type`        | `str`    | Yes      | `"text"`, `"number"`, `"toggle"`, `"dropdown"` |
-| `label`       | `str`    | Yes      | Human-readable name |
-| `description` | `str`    | No       | Help text |
-| `default`     | any      | No       | Default value |
-| `options`     | `List[str]` | Only for `dropdown` | Choices |
-| `min`, `max`, `step` | `int/float` | For `number`/`slider` | Constraints |
+```python
+from obsidian_bridge import (
+    define_settings,
+    handle_discovery_mode,
+    ObsidianPluginDevPythonToJS,
+    ObsidianCommError,
+)
 
-#### Example
+# Step 1: Define settings (optional)
+define_settings([
+    { "key": "api_key", "type": "text", "label": "API Key", "default": "" },
+    { "key": "enabled", "type": "toggle", "label": "Enable Feature", "default": True }
+])
+
+# Step 2: Handle discovery (MUST be called early)
+handle_discovery_mode()
+
+# Step 3: Use the client
+try:
+    client = ObsidianPluginDevPythonToJS()
+    settings = client.get_script_settings()
+    client.show_notification(settings.get("greeting", "Hi!"))
+except ObsidianCommError as e:
+    print(f"Error: {e}")
+```
+
+---
+
+## 🛠️ Global Functions
+
+### `define_settings(settings_list: List[Dict]) → None`
+
+Registers script settings that appear in the Obsidian UI.
+
+#### Parameters:
+| Field | Type | Required | Description |
+|------|------|----------|-------------|
+| `key` | `str` | ✅ | Internal identifier |
+| `type` | `str` | ✅ | One of: `text`, `number`, `slider`, `toggle`, `dropdown` |
+| `label` | `str` | ✅ | Human-readable label |
+| `description` | `str` | ❌ | Tooltip/help text |
+| `default` | varies | ✅ | Default value based on type |
+| `options` | `List[str]` | Only for `dropdown` | List of choices |
+| `min`, `max`, `step` | `int`/`float` | For `number`/`slider` | Value constraints |
+
+#### Example:
 ```python
 define_settings([
     {
-        "key": "greeting",
-        "type": "text",
-        "label": "Greeting Message",
-        "default": "Hello",
-        "description": "Custom message to show"
+        "key": "delay",
+        "type": "number",
+        "label": "Delay (ms)",
+        "description": "How long to wait before action",
+        "default": 1000,
+        "min": 100,
+        "max": 5000,
+        "step": 100
     },
     {
         "key": "theme",
         "type": "dropdown",
-        "label": "Theme Style",
-        "options": ["light", "dark"],
-        "default": "dark"
+        "label": "Color Theme",
+        "default": "dark",
+        "options": ["light", "dark", "auto"]
     }
 ])
 ```
 
-> ⚠️ Call this **before** using `get_script_settings()`.
+---
+
+### `handle_discovery_mode() → None`
+
+Handles the `--get-settings-json` argument used by Obsidian to fetch your script’s settings.
+
+> ⚠️ **Must be called early**, before creating `ObsidianPluginDevPythonToJS()`.
+
+If `--get-settings-json` is passed, it prints the registered settings as JSON and exits.
+
+Also detects if the script was triggered by an **event** (e.g., file save).
 
 ---
 
-## 🧭 Main API Reference
+## ❗ Exceptions
 
-All methods may raise:
-- `ObsidianCommError`: If communication with Obsidian fails
-- `ValueError`: On invalid input
+### `ObsidianCommError`
 
----
+Raised when communication with Obsidian fails.
 
-### 🔎 Note & Vault Info
+#### Attributes:
+- `.action`: Name of the failed action
+- `.status_code`: HTTP status code (if applicable)
+- `.message`: Human-readable error message
 
-#### `get_active_note_title() → str`
-Returns the title of the currently open note.
-
-#### `get_active_note_absolute_path() → str`
-Returns full filesystem path to the active note.
-
-#### `get_active_note_relative_path() → str`
-Returns vault-relative path (e.g., `folder/note.md`).
-
-#### `get_current_vault_absolute_path() → str`
-Returns the root directory of the current vault.
-
-#### `get_vault_name() → str`
-Returns the name of the current vault.
-
-#### `get_all_note_paths(absolute: bool = False) → List[str]`
-Get list of all `.md` file paths.
-
-- `absolute=True`: Full system paths
-- `False`: Relative to vault
-
-#### `get_all_note_titles() → List[str]`
-Returns list of all note titles (filename without `.md`).
-
-#### `get_obsidian_language() → str`
-Returns current UI language code (e.g., `"en"`, `"zh"`).
-
-#### `get_theme_mode() → str`
-Returns current theme: `"light"` or `"dark"`.
-
----
-
-### 📄 Reading Content
-
-#### `get_active_note_content(return_format: str = "string") → Union[str, List[str]]`
-Gets content of the active note.
-
-- `"string"` → full content as string
-- `"lines"` → list of lines
-
-#### `get_note_content(path: str) → str`
-Gets content of a note by relative path.
-
-> ❗ Path should match actual filename (including `.md` if needed).
-
-#### `get_selected_text() → str`
-Returns currently selected text in the editor.
-
-#### `get_editor_context() → Dict[str, Any]`
-Returns detailed editor context:
+#### Example:
 ```python
-{
-  "selection": {"start": 10, "end": 25},
-  "cursor": 25,
-  "line": 3,
-  "content": "Full line text..."
-}
+try:
+    client.get_active_note_content()
+except ObsidianCommError as e:
+    print(f"Failed to get content: {e} (action: {e.action})")
 ```
 
 ---
 
-### ✍️ Writing & Modifying Content
+## 🧰 `ObsidianPluginDevPythonToJS` Class
 
-#### `modify_note_content(file_path: str, content: str)`
-Overwrites the content of a note at the given **absolute** path.
+Main interface to control Obsidian.
 
-> ❗ Only accepts absolute paths.
+### Constructor
 
-#### `replace_selected_text(replacement: str)`
-Replaces the currently selected text.
+```python
+client = ObsidianPluginDevPythonToJS(
+    http_port=None,           # Uses OBSIDIAN_HTTP_PORT or 27123
+    connect_timeout=2.0,      # Timeout for connection (seconds)
+    request_timeout=10.0      # Timeout for requests (seconds)
+)
+```
 
-#### `show_notification(content: str, duration: int = 4000)`
-Displays a toast notification in Obsidian.
-
-- `duration`: Time in milliseconds (default: 4 seconds)
+Automatically tests connection on init.
 
 ---
 
-### 🗂️ File & Folder Management
+## 📚 API Reference
 
-#### `create_note(path: str, content: str = "")`
-Creates a new note at the given vault-relative path.
+All methods may raise `ObsidianCommError`.
 
-> Folders are created automatically.
+---
 
-#### `create_folder(path: str)`
-Creates a folder (and parents) at the specified path.
+### 🔔 Notifications
+
+#### `show_notification(content: str, duration: int = 4000) → None`
+Displays a pop-up notification in Obsidian.
+
+| Param | Type | Default | Description |
+|------|------|--------|-------------|
+| `content` | `str` | — | Message to show |
+| `duration` | `int` | `4000` | Milliseconds to display (0 = persistent) |
+
+---
+
+### 📄 Active Note Access
+
+#### `get_active_note_content(return_format: str = "string") → Union[str, List[str]]`
+Gets content of currently open note.
+
+| `return_format` | Returns |
+|----------------|---------|
+| `"string"` | Full content as single string |
+| `"lines"` | List of lines (split by `\n`) |
+
+> Returns `None` if no active note.
+
+---
+
+#### `get_active_note_frontmatter() → Optional[Dict[str, Any]]`
+Returns parsed YAML frontmatter of active note, or `None`.
+
+---
+
+#### `get_selected_text() → str`
+Returns currently selected text in editor. Empty string if nothing selected.
+
+---
+
+#### `replace_selected_text(replacement: str) → None`
+Replaces selected text with new content.
+
+---
+
+#### `get_active_note_absolute_path() → str`
+Returns full OS path to active note (e.g., `/home/user/vault/Note.md`).
+
+---
+
+#### `get_active_note_relative_path() → str`
+Returns path relative to vault root (e.g., `Folder/Note.md`).
+
+---
+
+#### `get_active_note_title() → str`
+Returns title of active note (filename without `.md` extension).
+
+---
+
+### 🗂️ Vault & File System
+
+#### `get_current_vault_absolute_path() → str`
+Returns full path to the current vault directory.
+
+---
+
+#### `get_vault_name() → str`
+Returns the name of the current vault.
+
+---
+
+#### `get_all_note_paths(absolute: bool = False) → List[str]`
+Returns list of all `.md` file paths.
+
+| Param | Description |
+|------|-------------|
+| `absolute=False` | Relative to vault root |
+| `absolute=True` | Full OS paths |
+
+---
+
+#### `get_all_note_titles() → List[str]`
+Returns list of all note **titles** (filenames without `.md`).
+
+---
+
+#### `get_note_content(path: str) → str`
+Gets content of any note by **relative path**.
+
+> Throws `ValueError` if path is empty.
+
+---
+
+#### `get_note_frontmatter(path: str) → Optional[Dict]`
+Gets frontmatter of any note by **relative path**.
+
+---
 
 #### `check_path_exists(path: str) → bool`
-Returns `True` if a file or folder exists.
+Returns `True` if file/folder exists at given vault-relative path.
 
-#### `delete_path(path: str, permanently: bool = False)`
+---
+
+#### `create_note(path: str, content: str = "") → None`
+Creates a new note at vault-relative `path`. Folders are auto-created.
+
+---
+
+#### `modify_note_content(file_path: str, content: str) → None`
+Overwrites content of a note by **absolute path**.
+
+> Use `get_note_content()` + edit + `modify_note_content()` for edits.
+
+---
+
+#### `delete_path(path: str, permanently: bool = False) → None`
 Deletes a file or folder.
 
-- `permanently=True`: Bypasses trash
+| Param | Behavior |
+|------|----------|
+| `permanently=False` | Moves to system trash |
+| `permanently=True` | Deletes permanently |
 
-#### `rename_path(old_path: str, new_path: str)`
-Renames/moves a file or folder.
+---
 
-> Both paths are relative to the vault root.
+#### `rename_path(old_path: str, new_path: str) → None`
+Renames/moves a file or folder (vault-relative paths).
+
+---
+
+#### `create_folder(path: str) → None`
+Creates a folder at vault-relative path. Intermediate folders are created.
+
+---
 
 #### `list_folder(path: str) → Dict[str, List[str]]`
 Lists contents of a folder.
@@ -221,261 +302,254 @@ Returns:
 ```python
 {
   "files": ["file1.md", "file2.md"],
-  "folders": ["subfolder"]
+  "folders": ["Subfolder"]
 }
 ```
-
-> Use `path=""` for vault root.
+Use `""` or `"."` for root.
 
 ---
 
 ### 🔗 Linking & Backlinks
 
-#### `open_note(path: str, new_leaf: bool = False)`
-Opens a note in current or new pane.
-
-- `path`: Link-style path (without `.md`)
-- `new_leaf=True`: Opens in a new tab
-
 #### `get_links(path: str, type: str = "outgoing") → List[str]`
-Gets links in a note.
+Gets links from/to a note.
 
-- `type`: `"outgoing"` (default), `"incoming"`, `"all"`
+| `type` | Links Retrieved |
+|-------|------------------|
+| `"outgoing"` | Links **from** the note |
+| `"incoming"` | Links **to** the note |
+| `"all"` | Both directions |
 
-Returns list of linked note paths.
+Returns list of **link paths** (without `.md`).
+
+---
 
 #### `get_backlinks(path: str, use_cache_if_available: bool = True, cache_mode: str = "fast") → Dict`
-Returns structured backlink data:
+Returns detailed backlink info.
+
+Result:
 ```python
 {
   "backlinks": [
     {
-      "source": "source-note.md",
-      "context": "This is where it was linked...",
+      "sourcePath": "Referrer.md",
+      "context": "This is where it was mentioned...",
       "highlight": "relevant phrase"
     }
   ]
 }
 ```
 
-- `cache_mode`: `"fast"` (default) or `"safe"` (re-parses all)
+| Param | Options | Default | Description |
+|------|--------|--------|-------------|
+| `use_cache_if_available` | `True`/`False` | `True` | Use faster cached data |
+| `cache_mode` | `"fast"`, `"safe"` | `"fast"` | How aggressively to trust cache |
+
+---
+
+### 🎨 UI & Theme
+
+#### `get_theme_mode() → str`
+Returns current theme: `"light"`, `"dark"`, or `"unknown"`.
+
+---
+
+#### `set_theme_light() → None`
+Switches to light mode.
+
+---
+
+#### `set_theme_dark() → None`
+Switches to dark mode.
+
+---
+
+#### `toggle_theme() → None`
+Toggles between light and dark.
+
+---
+
+### 🌐 Editor & Navigation
+
+#### `open_note(path: str, new_leaf: bool = False) → None`
+Opens a note by **link path** (without `.md`).
+
+| Param | Description |
+|------|-------------|
+| `path` | e.g., `"Folder/My Note"` |
+| `new_leaf=True` | Opens in new pane/tab |
+
+---
+
+#### `get_editor_context() → Dict[str, Any]`
+Returns detailed editor state:
+
+```python
+{
+  "selection": {"from": 10, "to": 25},
+  "cursor": 25,
+  "lineCount": 100,
+  "wordCount": 542
+}
+```
+
+Useful for advanced editing logic.
+
+---
+
+### ⚙️ Commands & Automation
+
+#### `run_obsidian_command(command_id: str) → None`
+Executes a built-in or plugin command by ID.
+
+> Find command IDs in Obsidian settings → Keyboard shortcuts.
+
+Example:
+```python
+client.run_obsidian_command("editor:toggle-bold")
+```
+
+---
+
+#### `request_user_input(...) → Any`
+Prompts user with a modal input.
+
+##### Parameters:
+| Field | Type | Required | Description |
+|------|------|----------|-------------|
+| `script_name` | `str` | ✅ | Name shown in modal |
+| `input_type` | `str` | ✅ | One of: `text`, `number`, `slider`, `confirm`, `dropdown` |
+| `message` | `str` | ✅ | Prompt message |
+| `validationRegex` | `str` | ❌ | Regex to validate text input |
+| `minValue`, `maxValue`, `step` | numbers | For `number`/`slider` | Value bounds |
+| `options` | `List[str]` | For `dropdown` | Choices |
+
+Returns user input or `None` if canceled.
 
 ---
 
 ### 🏷️ Tags
 
 #### `get_all_tags() → List[str]`
-Returns list of all unique tags in the vault (e.g., `["work", "project/x"]`).
+Returns list of all tags used in the vault (e.g., `["#work", "#project/x"]`).
 
 ---
 
-### 🎨 Theme Control
+### 🌍 Environment Info
 
-#### `set_theme_light()`, `set_theme_dark()`, `toggle_theme()`
-Switch Obsidian’s appearance.
+#### `get_obsidian_language() → str`
+Returns current UI language code (e.g., `"en"`, `"zh"`).
 
 ---
 
-### ⚙️ Frontmatter Management *(Requires PyYAML)*
+## 🧩 Frontmatter Management (Requires PyYAML)
 
 > Install: `pip install PyYAML`
 
-These methods safely read and modify YAML frontmatter.
-
-#### `get_active_note_frontmatter() → Optional[Dict]`
-Returns frontmatter of the active note.
-
-#### `get_note_frontmatter(path: str) → Optional[Dict]`
-Returns frontmatter of a note by relative path.
-
-#### `manage_properties_key(...) → Dict`
-Add, remove, or rename a top-level key.
-
-| Parameter             | Type     | Description |
-|-----------------------|----------|-------------|
-| `file_path`           | `str`    | Absolute path to `.md` file |
-| `action`              | `str`    | `"add"`, `"remove"`, `"rename"` |
-| `key`                 | `str`    | Existing key |
-| `new_key`             | `str`    | Required only for `rename` |
-| `use_vault_modify`    | `bool`   | If `True`, uses Obsidian API; else direct file write |
-
-> ❗ Only modifies top-level keys.
-
-#### `manage_properties_value(...) → Dict`
-Modify a frontmatter value.
-
-| Parameter             | Type     | Description |
-|-----------------------|----------|-------------|
-| `file_path`           | `str`    | Absolute path |
-| `key`                 | `str`    | Key to update |
-| `action`              | `str`    | `"add"`, `"remove"`, `"update"` |
-| `value`               | `Any`    | Value to add/remove |
-| `new_value`           | `Any`    | New value (for `update`) |
-| `index`               | `int`    | Index in list (optional) |
-| `use_vault_modify`    | `bool`   | Use Obsidian API? |
-
-##### Behavior by Type
-- **Scalar (string/number)**: Direct assignment on `update`
-- **List**:
-  - `add`: Append one or more items
-  - `remove`: Remove specific values
-  - `update`: Replace by index or by matching value
+These methods safely edit YAML frontmatter.
 
 ---
 
-### 🎯 Commands & Events
+### `manage_properties_key(...) → Dict`
+Add, remove, or rename a top-level frontmatter key.
 
-#### `run_obsidian_command(command_id: str)`
-Executes a registered Obsidian command by its ID.
+| Param | Description |
+|------|-------------|
+| `file_path` | Absolute path to `.md` file |
+| `action` | `"add"`, `"remove"`, `"rename"` |
+| `key` | Key name |
+| `new_key` | Required for `"rename"` |
+| `use_vault_modify` | If `True`, uses Obsidian API; else edits file directly |
 
-> Find IDs in Obsidian Settings → Commands.
+Returns:
+```python
+{"success": True}  # or {"success": False, "error": "..."}
+```
 
-#### `register_event_listener(event_name: str)`
-Registers your script to listen for a specific event (e.g., `file-open`, `vault-open`).
+---
 
-> Script must be launched via Obsidian to receive events.
+### `manage_properties_value(...) → Dict`
+Add, remove, or update a frontmatter value.
 
-#### `unregister_event_listener(event_name: str)`
+| Param | Description |
+|------|-------------|
+| `value` | Value to match (for remove/update) or add |
+| `new_value` | New value (for update) |
+| `index` | Index in list (for list updates) |
+
+Supports scalar and list values.
+
+---
+
+## 🎯 Event System (Advanced)
+
+### `register_event_listener(event_name: str) → None`
+Registers your script to be triggered when a specific event occurs.
+
+> Your script must be run **once** to register.
+
+Supported events depend on plugin, e.g.:
+- `"file-open"`
+- `"file-save"`
+- `"workspace-active-leaf-change"`
+
+After registration, the script will be re-run with:
+```bash
+OBSIDIAN_EVENT_NAME="file-save"
+OBSIDIAN_EVENT_PAYLOAD='{"path": "Note.md"}'
+```
+
+---
+
+### `unregister_event_listener(event_name: str) → None`
 Unregisters from an event.
 
 ---
 
-## 📡 Event Handling
+## 🧪 Troubleshooting
 
-When triggered by an event in Obsidian (like a button click or file save), environment variables are set:
-
-- `OBSIDIAN_EVENT_NAME`: Name of the event
-- `OBSIDIAN_EVENT_PAYLOAD`: JSON string with data
-
-Check at runtime:
-
-```python
-from ObsidianPluginDevPythonToJS import _is_handling_event, _event_name, _event_payload
-
-if _is_handling_event:
-    print("Event:", _event_name)
-    print("Payload:", _event_payload)
-```
-
-> These are **module-level globals** set at import time.
+| Issue | Solution |
+|------|----------|
+| `Connection timed out` | Is Obsidian running? Is HTTP plugin enabled? |
+| `Script path not set` | Run script from inside Obsidian (not CLI) |
+| `PyYAML not installed` | `pip install PyYAML` for frontmatter functions |
+| Settings not showing | Make sure `define_settings()` is called before `handle_discovery_mode()` |
 
 ---
 
-## 🛠️ Utility Methods
+## 📎 Environment Variables (Advanced)
 
-### `get_script_settings() → Dict[str, Any]`
-Returns user-defined settings configured via `define_settings()`.
-
-> ❗ Only works if script is launched through Obsidian.
-
-### `request_user_input(...) → Any`
-Prompts the user with a modal.
-
-| Parameter         | Description |
-|-------------------|-----------|
-| `script_name`     | Display name |
-| `input_type`      | `"text"`, `"number"`, `"toggle"`, `"dropdown"` |
-| `message`         | Prompt text |
-| `validationRegex` | Regex to validate text input |
-| `minValue`, `maxValue`, `step` | For number inputs |
-
-Returns the user's input.
+| Variable | Default | Description |
+|--------|--------|-------------|
+| `OBSIDIAN_HTTP_PORT` | `27123` | Custom HTTP server port |
+| `OBSIDIAN_SCRIPT_RELATIVE_PATH` | — | Set by Obsidian (e.g., `Scripts/main.py`) |
+| `OBSIDIAN_EVENT_NAME` | — | Name of triggering event |
+| `OBSIDIAN_EVENT_PAYLOAD` | `{}` | JSON payload from event |
+| `OBSIDIAN_BRIDGE_MODE` | `"normal"` | Internal use (`"discovery"`) |
 
 ---
 
-## 🧱 Exceptions
+## 📚 Summary: Best Practices
 
-### `ObsidianCommError`
-Raised when:
-- Obsidian is not running
-- Plugin is disabled
-- Request times out
-- Invalid response
-
-Includes:
-- `.action`: Failed action name
-- `.status_code`: HTTP status (if available)
+✅ Always call `handle_discovery_mode()` early  
+✅ Wrap calls in `try/except ObsidianCommError`  
+✅ Use absolute paths only with `modify_note_content()`  
+✅ Prefer `use_vault_modify=True` in frontmatter functions  
+✅ Test event listeners carefully  
+✅ Keep scripts idempotent (safe to run multiple times)
 
 ---
 
-## 🧪 Example: Add Tag to Current Note
+## 📄 License & Attribution
 
-```python
-# my_script.py
+This library is designed to work with the **Obsidian HTTP Plugin**.  
+It is not affiliated with the official Obsidian app.
 
-from ObsidianPluginDevPythonToJS import ObsidianPluginDevPythonToJS, define_settings
-
-# Define settings
-define_settings([
-    {
-        "key": "tag",
-        "type": "text",
-        "label": "Tag to Add",
-        "default": "#todo"
-    }
-])
-
-obsidian = ObsidianPluginDevPythonToJS()
-
-# Get current note
-path = obsidian.get_active_note_absolute_path()
-title = obsidian.get_active_note_title()
-
-# Add tag if not present
-content = obsidian.get_active_note_content()
-tag = obsidian.get_script_settings().get("tag", "#todo")
-
-if tag not in content:
-    obsidian.modify_note_content(path, content + f"\n\n{tag}")
-    obsidian.show_notification(f"Tag '{tag}' added to '{title}'")
-else:
-    obsidian.show_notification(f"Note already has '{tag}'")
-```
+Use responsibly. Avoid excessive requests or background polling.
 
 ---
 
-## 📎 Environment Variables
+✅ **You're now ready to build powerful automation for Obsidian using Python!**
 
-| Variable                        | Purpose |
-|-------------------------------|--------|
-| `OBSIDIAN_HTTP_PORT`          | Override default port (27123) |
-| `OBSIDIAN_EVENT_NAME`         | Current event name |
-| `OBSIDIAN_EVENT_PAYLOAD`      | JSON payload for event |
-| `OBSIDIAN_SCRIPT_RELATIVE_PATH` | Path to script (for settings) |
-| `OBSIDIAN_BRIDGE_MODE`        | Internal mode (e.g., `"discovery"`) |
 
----
 
-## 📦 Requirements
-
-| Dependency   | Purpose |
-|------------|--------|
-| `requests` | HTTP communication |
-| `PyYAML`   | Optional: frontmatter editing |
-
-Install:
-```bash
-pip install requests pyyaml
-```
-
----
-
-## 📚 License & Attribution
-
-This library is designed to work with the **Obsidian Python Bridge Plugin**. It is not affiliated with the Obsidian team.
-
-> Please respect Obsidian’s [Terms of Service](https://obsidian.md/terms).
-
----
-
-## 🆘 Support & Feedback
-
-For bug reports or feature requests:
-- Check the plugin’s documentation or GitHub repository
-- Ensure the plugin is running and port is correct
-- Enable debug logging if available
-
----
-
-✅ **You're now ready to automate your Obsidian vault with `ObsidianPluginDevPythonToJS.py`!**  
-📁 Place the script in your project and start building powerful workflows.

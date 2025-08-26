@@ -1,18 +1,24 @@
-# 📘 **Obsidian Python Bridge Client Library (HTTP Version) – API Documentation**
+# **Obsidian Python Bridge Client Library (HTTP Version)**  
+## *API Documentation for `ObsidianPluginDevPythonToJS.py`*
 
-This document provides a complete reference for the `ObsidianPluginDevPythonToJS` class, a Python client that enables communication between external Python scripts and the **Obsidian** note-taking application via an HTTP plugin interface.
+> **Version**: 1.0  
+> **File**: `ObsidianPluginDevPythonToJS.py`  
+> **Class**: `ObsidianPluginDevPythonToJS`  
+> **Communication**: HTTP (via Obsidian plugin)  
+
+This document provides a complete reference for the Python client that enables external scripts to interact with **Obsidian** through a local HTTP plugin interface.
 
 ---
 
 ## 🔧 Overview
 
-The **Obsidian Python Bridge** allows Python scripts to interact with Obsidian in real time by sending HTTP requests to a locally running Obsidian plugin. This enables automation of tasks such as reading/writing notes, modifying frontmatter, showing notifications, and responding to events.
+The `ObsidianPluginDevPythonToJS` class allows Python scripts to communicate with the **Obsidian** app by sending HTTP requests to a locally running plugin. This enables automation such as reading/writing notes, modifying frontmatter, showing notifications, and reacting to events.
 
 > ✅ **Use Case Examples**:
-> - Auto-tagging notes based on content
-> - Bulk-editing YAML frontmatter
-> - Creating templates or workflows
-> - Integrating with external tools (e.g., calendars, databases)
+> - Auto-generate metadata
+> - Bulk-edit YAML frontmatter
+> - Create smart templates
+> - Integrate with calendars, AI tools, or databases
 
 ---
 
@@ -21,7 +27,7 @@ The **Obsidian Python Bridge** allows Python scripts to interact with Obsidian i
 ### Prerequisites
 
 - **Obsidian** installed and running
-- **Obsidian Python Bridge Plugin** enabled in Obsidian
+- **Obsidian Python Bridge Plugin** enabled
 - Python 3.7+
 - Required packages:
   ```bash
@@ -31,18 +37,22 @@ The **Obsidian Python Bridge** allows Python scripts to interact with Obsidian i
 
 ### Import and Initialize
 
+Assuming `ObsidianPluginDevPythonToJS.py` is in your script’s directory (or in `PYTHONPATH`):
+
 ```python
-from obsidian_python_bridge import ObsidianPluginDevPythonToJS
+from ObsidianPluginDevPythonToJS import ObsidianPluginDevPythonToJS
 
 # Connect to Obsidian (default port: 27123)
 obsidian = ObsidianPluginDevPythonToJS()
 ```
 
-You can customize the HTTP port if needed:
+You can customize the HTTP port:
 
 ```python
 obsidian = ObsidianPluginDevPythonToJS(http_port=27124)
 ```
+
+> ⚠️ The plugin runs a local server at `http://127.0.0.1:<port>/`.
 
 ---
 
@@ -57,7 +67,7 @@ Registers configuration settings for your script (used in Obsidian UI).
 | `settings_list` | `List[Dict]`     | List of setting definitions |
 
 #### Setting Definition Schema
-Each setting dictionary supports these keys:
+Each setting dictionary supports:
 
 | Key           | Type     | Required | Description |
 |---------------|----------|----------|-------------|
@@ -66,7 +76,7 @@ Each setting dictionary supports these keys:
 | `label`       | `str`    | Yes      | Human-readable name |
 | `description` | `str`    | No       | Help text |
 | `default`     | any      | No       | Default value |
-| `options`     | `List[str]` | Only for `dropdown` | List of choices |
+| `options`     | `List[str]` | Only for `dropdown` | Choices |
 | `min`, `max`, `step` | `int/float` | For `number`/`slider` | Constraints |
 
 #### Example
@@ -121,11 +131,11 @@ Returns the name of the current vault.
 #### `get_all_note_paths(absolute: bool = False) → List[str]`
 Get list of all `.md` file paths.
 
-- If `absolute=True`, returns full system paths.
-- Otherwise, returns relative paths.
+- `absolute=True`: Full system paths
+- `False`: Relative to vault
 
 #### `get_all_note_titles() → List[str]`
-Returns list of all note titles (filename without `.md` extension).
+Returns list of all note titles (filename without `.md`).
 
 #### `get_obsidian_language() → str`
 Returns current UI language code (e.g., `"en"`, `"zh"`).
@@ -140,19 +150,19 @@ Returns current theme: `"light"` or `"dark"`.
 #### `get_active_note_content(return_format: str = "string") → Union[str, List[str]]`
 Gets content of the active note.
 
-- `return_format="string"` → entire content as a single string
-- `return_format="lines"` → list of lines
+- `"string"` → full content as string
+- `"lines"` → list of lines
 
 #### `get_note_content(path: str) → str`
-Gets content of a note by its relative path.
+Gets content of a note by relative path.
 
-> ❗ Path should not include `.md` if linking; but must match actual filename.
+> ❗ Path should match actual filename (including `.md` if needed).
 
 #### `get_selected_text() → str`
 Returns currently selected text in the editor.
 
 #### `get_editor_context() → Dict[str, Any]`
-Returns detailed context about the editor:
+Returns detailed editor context:
 ```python
 {
   "selection": {"start": 10, "end": 25},
@@ -172,7 +182,7 @@ Overwrites the content of a note at the given **absolute** path.
 > ❗ Only accepts absolute paths.
 
 #### `replace_selected_text(replacement: str)`
-Replaces the currently selected text with `replacement`.
+Replaces the currently selected text.
 
 #### `show_notification(content: str, duration: int = 4000)`
 Displays a toast notification in Obsidian.
@@ -186,18 +196,18 @@ Displays a toast notification in Obsidian.
 #### `create_note(path: str, content: str = "")`
 Creates a new note at the given vault-relative path.
 
-> Folders are created automatically if they don’t exist.
+> Folders are created automatically.
 
 #### `create_folder(path: str)`
-Creates a folder (and parent folders) at the specified path.
+Creates a folder (and parents) at the specified path.
 
 #### `check_path_exists(path: str) → bool`
-Returns `True` if a file or folder exists at `path`.
+Returns `True` if a file or folder exists.
 
 #### `delete_path(path: str, permanently: bool = False)`
 Deletes a file or folder.
 
-- If `permanently=True`, bypasses trash.
+- `permanently=True`: Bypasses trash
 
 #### `rename_path(old_path: str, new_path: str)`
 Renames/moves a file or folder.
@@ -222,15 +232,15 @@ Returns:
 ### 🔗 Linking & Backlinks
 
 #### `open_note(path: str, new_leaf: bool = False)`
-Opens a note in the current or new pane.
+Opens a note in current or new pane.
 
 - `path`: Link-style path (without `.md`)
-- `new_leaf=True`: Opens in a new tab/split
+- `new_leaf=True`: Opens in a new tab
 
 #### `get_links(path: str, type: str = "outgoing") → List[str]`
 Gets links in a note.
 
-- `type`: `"outgoing"` (default), `"incoming"`, or `"all"`
+- `type`: `"outgoing"` (default), `"incoming"`, `"all"`
 
 Returns list of linked note paths.
 
@@ -248,14 +258,14 @@ Returns structured backlink data:
 }
 ```
 
-- `cache_mode`: `"fast"` (default) or `"safe"` (re-parses all files)
+- `cache_mode`: `"fast"` (default) or `"safe"` (re-parses all)
 
 ---
 
 ### 🏷️ Tags
 
 #### `get_all_tags() → List[str]`
-Returns list of all unique tags used in the vault (e.g., `["work", "project/x"]`).
+Returns list of all unique tags in the vault (e.g., `["work", "project/x"]`).
 
 ---
 
@@ -332,23 +342,22 @@ Unregisters from an event.
 
 ## 📡 Event Handling
 
-When your script is triggered by an event in Obsidian (like a button click or file save), environment variables are set:
+When triggered by an event in Obsidian (like a button click or file save), environment variables are set:
 
 - `OBSIDIAN_EVENT_NAME`: Name of the event
 - `OBSIDIAN_EVENT_PAYLOAD`: JSON string with data
 
-You can check for events:
+Check at runtime:
 
 ```python
-if obsidian.is_handling_event():
-    print("Event:", obsidian.event_name)
-    print("Payload:", obsidian.event_payload)
+from ObsidianPluginDevPythonToJS import _is_handling_event, _event_name, _event_payload
+
+if _is_handling_event:
+    print("Event:", _event_name)
+    print("Payload:", _event_payload)
 ```
 
-> ⚠️ These are internal globals; access via:
-> ```python
-> from obsidian_python_bridge import _is_handling_event, _event_name, _event_payload
-> ```
+> These are **module-level globals** set at import time.
 
 ---
 
@@ -389,10 +398,12 @@ Includes:
 
 ---
 
-## 🧪 Example: Simple Note Updater
+## 🧪 Example: Add Tag to Current Note
 
 ```python
-from obsidian_python_bridge import ObsidianPluginDevPythonToJS, define_settings
+# my_script.py
+
+from ObsidianPluginDevPythonToJS import ObsidianPluginDevPythonToJS, define_settings
 
 # Define settings
 define_settings([
@@ -410,12 +421,15 @@ obsidian = ObsidianPluginDevPythonToJS()
 path = obsidian.get_active_note_absolute_path()
 title = obsidian.get_active_note_title()
 
-# Add tag to content
+# Add tag if not present
 content = obsidian.get_active_note_content()
-if "#todo" not in content:
-    obsidian.modify_note_content(path, content + f"\n\n{obsidian.get_script_settings()['tag']}")
+tag = obsidian.get_script_settings().get("tag", "#todo")
 
-obsidian.show_notification(f"Updated '{title}'")
+if tag not in content:
+    obsidian.modify_note_content(path, content + f"\n\n{tag}")
+    obsidian.show_notification(f"Tag '{tag}' added to '{title}'")
+else:
+    obsidian.show_notification(f"Note already has '{tag}'")
 ```
 
 ---
@@ -448,7 +462,7 @@ pip install requests pyyaml
 
 ## 📚 License & Attribution
 
-This library is intended to work with the **Obsidian Python Bridge Plugin**. It is not affiliated with the Obsidian team.
+This library is designed to work with the **Obsidian Python Bridge Plugin**. It is not affiliated with the Obsidian team.
 
 > Please respect Obsidian’s [Terms of Service](https://obsidian.md/terms).
 
@@ -456,8 +470,12 @@ This library is intended to work with the **Obsidian Python Bridge Plugin**. It 
 
 ## 🆘 Support & Feedback
 
-For bug reports or feature requests, please open an issue on the associated GitHub repository (if available), or consult the plugin documentation.
+For bug reports or feature requests:
+- Check the plugin’s documentation or GitHub repository
+- Ensure the plugin is running and port is correct
+- Enable debug logging if available
 
 ---
 
-✅ **You're now ready to automate your Obsidian vault with Python!**
+✅ **You're now ready to automate your Obsidian vault with `ObsidianPluginDevPythonToJS.py`!**  
+📁 Place the script in your project and start building powerful workflows.

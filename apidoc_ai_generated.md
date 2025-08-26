@@ -1,6 +1,6 @@
 # 📘 **Obsidian Python Bridge API Documentation**
 
-> **Library**: `obsidian_bridge.py`  
+> **Library**: `ObsidianPluginDevPythonToJS.py`  
 > **Version**: 1.0 (HTTP-based)  
 > **Purpose**: Enables Python scripts to interact with the Obsidian note-taking app via an HTTP plugin bridge.  
 > **Communication**: Uses local HTTP server (default port `27123`) to send/receive JSON commands.
@@ -37,7 +37,7 @@ Also make sure:
 ## 🚀 Quick Start Example
 
 ```python
-from obsidian_bridge import (
+from ObsidianPluginDevPythonToJS import (
     define_settings,
     handle_discovery_mode,
     ObsidianPluginDevPythonToJS,

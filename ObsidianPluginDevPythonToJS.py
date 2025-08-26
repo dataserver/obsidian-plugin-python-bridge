@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import traceback
+import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -25,84 +26,93 @@ except ImportError:
 try:
     import yaml
 except ImportError:
-    print(
-        "WARNING: PyYAML not installed. Frontmatter functions will be unavailable.",
-        file=sys.stderr,
-    )
+    yaml = None  # type: ignore
 
-# --- Configuration ---
-DEFAULT_HTTP_PORT = 27123
-HTTP_PORT = int(os.environ.get("OBSIDIAN_HTTP_PORT", DEFAULT_HTTP_PORT))
+# --- Logging Setup ---
+import logging
 
-# --- Global State ---
-_script_settings_definitions: List[Dict[str, Any]] = []
-_is_handling_event = False
-_event_name = None
-_event_payload = None
+logging.basicConfig(level=logging.WARNING)
+log = logging.getLogger("obsidian_bridge")
 
-# Check for event at import time
-_event_name_from_env = os.environ.get("OBSIDIAN_EVENT_NAME")
-if _event_name_from_env:
-    _is_handling_event = True
-    _payload_str = os.environ.get("OBSIDIAN_EVENT_PAYLOAD", "{}")
-    try:
-        _event_payload = json.loads(_payload_str)
-    except json.JSONDecodeError:
-        print(
-            f"ERROR: Failed to parse event payload JSON: '{_payload_str}'",
-            file=sys.stderr,
+
+# --- Global Context Class ---
+class BridgeContext:
+    """
+    Encapsulates all shared state for the Obsidian bridge.
+    Avoids scattered module-level globals.
+    """
+
+    def __init__(self) -> None:
+        self.settings_definitions: List[Dict[str, Any]] = []
+        self.is_handling_event: bool = False
+        self.event_name: Optional[str] = None
+        self.event_payload: Optional[Dict[str, Any]] = None
+        self.http_port: int = int(os.environ.get("OBSIDIAN_HTTP_PORT", 27123))
+        self.script_relative_path: Optional[str] = os.environ.get(
+            "OBSIDIAN_SCRIPT_RELATIVE_PATH"
         )
-        _event_payload = {
-            "error": "Failed to parse payload",
-            "raw_payload": _payload_str,
-        }
+        self.execution_mode: str = os.environ.get("OBSIDIAN_BRIDGE_MODE", "normal")
+
+    def detect_event_from_env(self) -> None:
+        """Detect if we're handling an Obsidian event from environment."""
+        if self.is_handling_event:
+            return
+        name = os.environ.get("OBSIDIAN_EVENT_NAME")
+        if not name:
+            return
+        payload_str = os.environ.get("OBSIDIAN_EVENT_PAYLOAD", "{}")
+        try:
+            payload = json.loads(payload_str)
+        except json.JSONDecodeError:
+            payload = {"error": "Invalid JSON", "raw": payload_str}
+        self.event_name = name
+        self.event_payload = payload
+        self.is_handling_event = True
 
 
+# --- Singleton Instance ---
+_bridge_context = BridgeContext()
+
+
+# --- Public API: Settings & Discovery ---
 def define_settings(settings_list: List[Dict[str, Any]]) -> None:
     """
-    Registers settings definitions for the script.
+    Register settings definitions for the script.
 
     Args:
-        settings_list: List of setting dictionaries with keys: key, type, label, description,
+        settings_list: List of setting dicts with keys: key, type, label, description,
                        default, options (optional), min/max/step (for number/slider).
     """
-    global _script_settings_definitions
-    _script_settings_definitions = settings_list
+    _bridge_context.settings_definitions = settings_list
 
 
-def _handle_cli_args() -> None:
-    """Handles CLI args and environment events. Must be called after define_settings."""
+def handle_discovery_mode() -> None:
+    """
+    Handle settings discovery (e.g. --get-settings-json).
+    Must be called early in the script, before using the client.
+    Exits the program if discovery flag is detected.
+    """
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--get-settings-json", action="store_true")
     args, _ = parser.parse_known_args()
 
-    # Re-check event (can be set after module load)
-    global _is_handling_event, _event_name, _event_payload
-    if not _is_handling_event:
-        name = os.environ.get("OBSIDIAN_EVENT_NAME")
-        if name:
-            _is_handling_event = True
-            payload_str = os.environ.get("OBSIDIAN_EVENT_PAYLOAD", "{}")
-            try:
-                _event_payload = json.loads(payload_str)
-            except json.JSONDecodeError:
-                _event_payload = {"error": "Invalid JSON", "raw": payload_str}
-            _event_name = name
-
     if args.get_settings_json:
-        output = (
-            _script_settings_definitions
-            if "_script_settings_definitions" in globals()
-            else []
-        )
+        _bridge_context.detect_event_from_env()
         try:
-            print(json.dumps(output))
+            print(json.dumps(_bridge_context.settings_definitions or []))
             sys.exit(0)
         except (TypeError, ValueError) as e:
-            print(json.dumps({"status": "error", "error": str(e)}), file=sys.stderr)
+            print(
+                json.dumps({"status": "error", "error": str(e)}),
+                file=sys.stderr,
+            )
             sys.exit(1)
 
+    # Always check for event after parsing args
+    _bridge_context.detect_event_from_env()
 
+
+# --- Exceptions ---
 class ObsidianCommError(Exception):
     """Exception for HTTP communication failures with Obsidian."""
 
@@ -120,6 +130,7 @@ class ObsidianCommError(Exception):
         super().__init__(msg)
 
 
+# --- Main Client Class ---
 class ObsidianPluginDevPythonToJS:
     """Client for interacting with Obsidian via HTTP."""
 
@@ -129,32 +140,29 @@ class ObsidianPluginDevPythonToJS:
         "connect_timeout",
         "request_timeout",
         "session",
-        "_execution_mode",
         "script_relative_path",
-        "_script_relative_path_for_api",
     )
 
     def __init__(
         self,
-        http_port: int = HTTP_PORT,
+        http_port: Optional[int] = None,
         connect_timeout: float = 2.0,
         request_timeout: float = 10.0,
     ):
-        if not (1024 <= http_port <= 65535):
-            raise ValueError(f"Invalid port: {http_port}. Must be 1024–65535.")
-        self.http_port = http_port
-        self.base_url = f"http://127.0.0.1:{http_port}/"
+        port = http_port if http_port is not None else _bridge_context.http_port
+        if not (1024 <= port <= 65535):
+            raise ValueError(f"Invalid port: {port}. Must be 1024–65535.")
+        self.http_port = port
+        self.base_url = f"http://127.0.0.1:{self.http_port}/"
         self.connect_timeout = connect_timeout
         self.request_timeout = request_timeout
         self.session = requests.Session()
-        self._execution_mode = os.environ.get("OBSIDIAN_BRIDGE_MODE", "normal")
-        self.script_relative_path = os.environ.get("OBSIDIAN_SCRIPT_RELATIVE_PATH")
-        self._script_relative_path_for_api = self.script_relative_path
+        self.script_relative_path = _bridge_context.script_relative_path
 
         if not self.script_relative_path:
-            print(
-                "WARNING: Script path not set. get_script_settings() will fail.",
-                file=sys.stderr,
+            warnings.warn(
+                "Script path not set. get_script_settings() will fail.",
+                category=UserWarning,
             )
 
         self._test_connection()
@@ -167,8 +175,9 @@ class ObsidianPluginDevPythonToJS:
                 json={"action": "_ping", "payload": {}},
                 timeout=self.connect_timeout,
             )
+            # Accept 4xx/5xx as expected for unknown action
             if 400 <= resp.status_code < 600:
-                return  # Expected for unknown action
+                return
             resp.raise_for_status()
         except requests.exceptions.Timeout:
             raise ObsidianCommError(
@@ -192,9 +201,9 @@ class ObsidianPluginDevPythonToJS:
         timeout: Optional[float] = None,
     ) -> Any:
         """Send a JSON request and return the 'data' field from a successful response."""
-        if self._execution_mode == "discovery":
+        if _bridge_context.execution_mode == "discovery":
             raise ObsidianCommError(
-                "API calls disabled in discovery mode. Handle --get-settings-json first.",
+                "API calls disabled in discovery mode. Call handle_discovery_mode() first.",
                 action=action,
             )
 
@@ -237,13 +246,12 @@ class ObsidianPluginDevPythonToJS:
         except requests.exceptions.JSONDecodeError as e:
             raise ObsidianCommError(f"Invalid JSON response: {e}", action=action) from e
         except Exception as e:
-            print(
-                f"ERROR: Unexpected error in _send_receive: {e}\n{traceback.format_exc()}",
-                file=sys.stderr,
+            log.error(
+                f"Unexpected error in _send_receive: {e}\n{traceback.format_exc()}"
             )
             raise ObsidianCommError(f"Unexpected error: {e}", action=action) from e
 
-    # --- Public API ---
+    # --- Public API: Core ---
     def get_script_settings(self) -> Dict[str, Any]:
         """Get current user-defined settings for this script."""
         if not self.script_relative_path:
@@ -374,8 +382,8 @@ class ObsidianPluginDevPythonToJS:
         use_vault_modify: bool = True,
     ) -> Dict[str, Any]:
         """Add, remove, or rename a top-level frontmatter key."""
-        if "yaml" not in sys.modules:
-            raise NameError("PyYAML required. Install with: pip install PyYAML")
+        if yaml is None:
+            raise ImportError("PyYAML required. Install with: pip install PyYAML")
         p = Path(file_path)
         if not p.is_file() or p.suffix != ".md":
             return {"success": False, "error": "Invalid .md file path."}
@@ -400,13 +408,14 @@ class ObsidianPluginDevPythonToJS:
                 else:
                     return {"success": False, "error": "No frontmatter block found."}
             else:
-                frontmatter = yaml.safe_load(parts[1]) or {}
-                main_content = parts[2]
-                if not isinstance(frontmatter, dict):
+                loaded = yaml.safe_load(parts[1]) or {}
+                if not isinstance(loaded, dict):
                     return {
                         "success": False,
                         "error": "Frontmatter is not a dictionary.",
                     }
+                frontmatter = loaded
+                main_content = parts[2]
 
             original = frontmatter.copy()
             if action == "add":
@@ -463,8 +472,8 @@ class ObsidianPluginDevPythonToJS:
         use_vault_modify: bool = True,
     ) -> Dict[str, Any]:
         """Add, remove, or update a frontmatter value."""
-        if "yaml" not in sys.modules:
-            raise NameError("PyYAML required. Install with: pip install PyYAML")
+        if yaml is None:
+            raise ImportError("PyYAML required. Install with: pip install PyYAML")
         p = Path(file_path)
         if not p.is_file() or p.suffix != ".md":
             return {"success": False, "error": "Invalid .md file path."}
@@ -637,25 +646,25 @@ class ObsidianPluginDevPythonToJS:
     def register_event_listener(self, event_name: str) -> None:
         if not event_name:
             raise ValueError("event_name cannot be empty.")
-        if not self._script_relative_path_for_api:
+        if not self.script_relative_path:
             raise ObsidianCommError(
                 "Script path not set.", action="register_event_listener"
             )
         self._send_receive(
             "register_event_listener",
-            {"eventName": event_name, "scriptPath": self._script_relative_path_for_api},
+            {"eventName": event_name, "scriptPath": self.script_relative_path},
         )
 
     def unregister_event_listener(self, event_name: str) -> None:
         if not event_name:
             raise ValueError("event_name cannot be empty.")
-        if not self._script_relative_path_for_api:
+        if not self.script_relative_path:
             raise ObsidianCommError(
                 "Script path not set.", action="unregister_event_listener"
             )
         self._send_receive(
             "unregister_event_listener",
-            {"eventName": event_name, "scriptPath": self._script_relative_path_for_api},
+            {"eventName": event_name, "scriptPath": self.script_relative_path},
         )
 
     def get_backlinks(
